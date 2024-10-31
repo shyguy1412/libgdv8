@@ -1,48 +1,30 @@
 mod environment;
+mod error;
 mod value;
 
-use environment::{unsafe_mut, V8Environment};
+use environment::V8Environment;
+pub use error::*;
 use godot::global::godot_print;
 use rusty_v8 as v8;
-use std::{
-    ops::Deref,
-    sync::{LazyLock, Mutex, MutexGuard, PoisonError},
-};
+use std::sync::Mutex;
 pub use value::*;
 
 static V8_INITIALIZED: Mutex<bool> = Mutex::new(false);
 
-trait UnwrapEnvironment {
-    fn unwrap_env(&mut self) -> &mut V8Environment<'static>;
-}
-
-impl UnwrapEnvironment
-    for Result<
-        MutexGuard<'_, Option<V8Environment<'static>>>,
-        PoisonError<MutexGuard<'_, Option<V8Environment<'static>>>>,
-    >
-{
-    fn unwrap_env(&mut self) -> &mut V8Environment<'static> {
-        return self.as_mut().unwrap().as_mut().unwrap();
-    }
-}
-
 pub struct Runtime {
-    environment: LazyLock<Mutex<Option<V8Environment<'static>>>>,
+    environment: Option<V8Environment>,
 }
 
 impl Runtime {
     pub const fn prepare() -> Self {
-        return Self {
-            environment: LazyLock::new(|| Mutex::new(None)),
-        };
+        return Self { environment: None };
     }
-    pub fn new() -> Self {
-        let mut runtime = Runtime::prepare();
-        runtime.init();
-        return runtime;
-    }
-    pub fn init(&mut self) {
+    // pub fn new() -> Result<Self, Error> {
+    //     let mut runtime = Runtime::prepare();
+    //     runtime.init()?;
+    //     return Ok(runtime);
+    // }
+    pub fn init(&mut self) -> Result<(), Error> {
         let mut v8_init = V8_INITIALIZED.lock().unwrap();
         if !*v8_init {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -51,29 +33,64 @@ impl Runtime {
             *v8_init = true;
         }
 
-        let mut env = self.environment.lock().unwrap();
-
-        if env.is_none() {
-            *env = Some(V8Environment::new());
+        if self.environment.is_none() {
+            self.environment = Some(V8Environment::new()?)
         }
-    }
-    pub fn run_script(&mut self, source: &str) -> Option<v8::Local<'_, v8::Value>> {
-        // Create a string containing the JavaScript source code.
-        let env_lock = &mut self.environment.lock();
-        let env = env_lock.unwrap_env();
-        let scope = &mut v8::ContextScope::new(unsafe_mut(env.scope), *unsafe_mut(env.context));
-        let result = v8::String::new(scope, source)
-            .and_then(|code| v8::Script::compile(scope, code, None))
-            .and_then(|script| script.run(scope));
 
-        return result;
+        Ok(())
+    }
+    pub fn run_script(&self, source: &str) -> Result<v8::Local<'_, v8::Value>, Error> {
+        let context_scope = match self.environment.as_ref() {
+            Some(v) => v.context_scope(),
+            None => return Err(Error::InvalidEnvironment),
+        };
+
+        if context_scope.is_none() {
+            return Err(Error::InvalidEnvironment);
+        };
+
+        let context_scope = context_scope.unwrap();
+
+        let result = v8::String::new(context_scope, source)
+            .and_then(|code| v8::Script::compile(context_scope, code, None))
+            .and_then(|script| script.run(context_scope));
+
+        return match result {
+            Some(v) => Ok(v.clone()),
+            None => Err(Error::None),
+        };
+    }
+
+    pub fn to_rust_string_lossy(&self, value: v8::Local<rusty_v8::Value>) -> Result<String, Error> {
+        // Create a string containing the JavaScript source code.
+        if self.environment.is_none() {
+            return Err(Error::InvalidEnvironment);
+        };
+
+        let environment = self.environment.as_ref().unwrap();
+
+        let context_scope = environment.context_scope();
+
+        if context_scope.is_none() {
+            return Err(Error::InvalidEnvironment);
+        };
+
+        let context_scope = context_scope.unwrap();
+
+        Ok(value.to_rust_string_lossy(context_scope))
+
     }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
         godot_print!("DROPPED RUNTIME");
-        self.environment.lock().unwrap().as_mut().unwrap().drop();
+
+        // match self.environment {
+        //     Ok(_) => self.environment = Err(Error { msg: "dropped" }),
+        //     Err(_) => (),
+        // }
+
         // self.run_script("'hello world'");
     }
 }

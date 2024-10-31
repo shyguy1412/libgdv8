@@ -1,49 +1,67 @@
-use rusty_v8 as v8;
+use crate::gdv8::error::Error;
+use godot::global::godot_print;
+use rusty_v8::{self as v8};
 
-pub fn as_raw<T>(value: T) -> *mut T {
-    Box::into_raw(Box::new(value))
+pub struct V8Environment {
+    isolate_ptr: *mut v8::OwnedIsolate,
+    handle_scope_ptr: *mut v8::HandleScope<'static, ()>,
+    context_ptr: *mut v8::Local<'static, v8::Context>,
+    context_scope_ptr: *mut v8::ContextScope<'static, v8::HandleScope<'static>>,
 }
 
-pub fn unsafe_mut<T>(value: *mut T) -> &'static mut T {
-    return unsafe { value.as_mut() }.unwrap();
-}
+unsafe impl Send for V8Environment {}
 
-pub type V8Isolate = v8::OwnedIsolate;
-pub type V8HandleScope<'a> = v8::HandleScope<'a, ()>;
-pub type V8Context<'a> = v8::Local<'a, v8::Context>;
+impl V8Environment {
+    pub fn new() -> Result<Self, Error> {
+        let isolate_ptr = Box::into_raw(Box::new(v8::Isolate::new(v8::CreateParams::default())));
 
-pub struct V8Environment<'a> {
-    pub isolate: *mut V8Isolate,
-    pub scope: *mut V8HandleScope<'a>,
-    pub context: *mut V8Context<'a>,
-}
+        let handle_scope_ptr = unsafe { isolate_ptr.as_mut() }
+            .and_then(|isolate| Some(Box::into_raw(Box::new(v8::HandleScope::new(isolate)))));
 
-unsafe impl Send for V8Environment<'_> {}
+        let context_ptr = handle_scope_ptr
+            .and_then(|handle_scope_ptr| unsafe { handle_scope_ptr.as_mut() })
+            .and_then(|scope| Some(Box::into_raw(Box::new(v8::Context::new(scope)))));
 
-impl V8Environment<'static> {
-    pub fn new() -> Self {
-        // Create a new Isolate and make it the current one.
-        let isolate_raw = as_raw(v8::Isolate::new(v8::CreateParams::default()));
-        let isolate = unsafe_mut(isolate_raw);
+        let handle_scope_ptr = match handle_scope_ptr {
+            Some(v) => Ok(v),
+            None => Err(Error::ScopePointerAllocationFailed),
+        }?;
 
-        // Create a stack-allocated handle scope.
-        let handle_scope_raw = as_raw(v8::HandleScope::new(isolate));
-        let handle_scope = unsafe_mut(handle_scope_raw);
+        let context_ptr = match context_ptr {
+            Some(v) => Ok(v),
+            None => Err(Error::ContextAllocationFailed),
+        }?;
 
-        // Create a new context.
-        let context_raw = as_raw(v8::Context::new(handle_scope));
+        let handle_scope = unsafe { handle_scope_ptr.as_mut().unwrap() };
 
-        return Self {
-            isolate: unsafe_mut(isolate_raw),
-            context: unsafe_mut(context_raw),
-            scope: unsafe_mut(handle_scope_raw),
-        };
+        let context = unsafe { context_ptr.as_ref().unwrap() };
+
+        let context_scope_ptr =
+            Box::into_raw(Box::new(v8::ContextScope::new(handle_scope, *context)));
+
+        return Ok(Self {
+            isolate_ptr,
+            handle_scope_ptr,
+            context_ptr,
+            context_scope_ptr,
+        });
     }
-    pub fn drop(&mut self) {
+
+    pub fn context_scope<'a>(
+        &'a self,
+    ) -> Option<&mut v8::ContextScope<'static, v8::HandleScope<'static>>> {
+        return unsafe { self.context_scope_ptr.as_mut() };
+    }
+}
+
+impl Drop for V8Environment {
+    fn drop(&mut self) {
+        godot_print!("dropped env");
         unsafe {
-            drop(Box::from_raw(self.scope));
-            // drop(Box::from_raw(self.context));
-            // drop(Box::from_raw(self.isolate));
+            drop(Box::from_raw(self.context_scope_ptr));
+            drop(Box::from_raw(self.context_ptr));
+            drop(Box::from_raw(self.handle_scope_ptr));
+            drop(Box::from_raw(self.isolate_ptr));
         }
     }
 }

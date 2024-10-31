@@ -1,9 +1,7 @@
 mod gdv8;
 mod helpers;
 
-use godot::{
-    classes::notify::NodeNotification, prelude::*
-};
+use godot::{classes::notify::NodeNotification, prelude::*};
 
 struct GodotV8Extension;
 #[gdextension]
@@ -20,11 +18,15 @@ struct JSNode {
 impl JSNode {
     #[func]
     fn run_script(&mut self, script: String) -> gdv8::WeakType {
-        let value = match self.runtime.run_script(&script).as_deref() {
-            Some(_) => gdv8::String("defined"),
-            None => gdv8::String("undefined"),
+        let value = self.runtime.run_script(&script);
+
+        return match value {
+            Ok(v) => match self.runtime.to_rust_string_lossy(v) {
+                Ok(v) => gdv8::String(v),
+                Err(_) => gdv8::WeakType::Undefined,
+            },
+            Err(_) => gdv8::WeakType::Undefined,
         };
-        return value;
     }
 }
 
@@ -32,12 +34,13 @@ impl JSNode {
 impl INode for JSNode {
     fn init(base: Base<Node>) -> Self {
         let mut runtime = gdv8::Runtime::prepare();
-        runtime.init();
+        if runtime.init().is_err() {
+            panic!("Could not create V8 runtime")
+        };
         Self { base, runtime }
     }
 
     fn on_notification(&mut self, what: NodeNotification) {
-        if what == NodeNotification::PREDELETE {
-        }
+        if what == NodeNotification::PREDELETE {}
     }
 }
