@@ -78,19 +78,11 @@ impl Runtime {
         let context_scope = context_scope.unwrap();
 
         Ok(value.to_rust_string_lossy(context_scope))
-
     }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        godot_print!("DROPPED RUNTIME");
-
-        // match self.environment {
-        //     Ok(_) => self.environment = Err(Error { msg: "dropped" }),
-        //     Err(_) => (),
-        // }
-
-        // self.run_script("'hello world'");
+        self.environment = None;
     }
 }

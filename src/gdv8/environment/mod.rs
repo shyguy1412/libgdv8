@@ -56,7 +56,6 @@ impl V8Environment {
 
 impl Drop for V8Environment {
     fn drop(&mut self) {
-        godot_print!("dropped env");
         unsafe {
             drop(Box::from_raw(self.context_scope_ptr));
             drop(Box::from_raw(self.context_ptr));
