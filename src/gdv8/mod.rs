@@ -2,7 +2,7 @@ mod environment;
 mod error;
 mod value;
 
-use environment::V8Environment;
+use environment::{AsLocal, V8Environment};
 pub use error::*;
 use godot::global::godot_print;
 use rusty_v8 as v8;
@@ -40,20 +40,37 @@ impl Runtime {
         Ok(())
     }
     pub fn run_script(&self, source: &str) -> Result<v8::Local<'_, v8::Value>, Error> {
-        let context_scope = match self.environment.as_ref() {
-            Some(v) => v.context_scope(),
+        let env = match self.environment.as_ref() {
+            Some(v) => v,
             None => return Err(Error::InvalidEnvironment),
         };
 
-        if context_scope.is_none() {
-            return Err(Error::InvalidEnvironment);
+        let scope = match env.context_scope() {
+            Some(v) => v,
+            None => return Err(Error::InvalidEnvironment),
         };
 
-        let context_scope = context_scope.unwrap();
+        let scope = &mut v8::TryCatch::new(scope);
 
-        let result = v8::String::new(context_scope, source)
-            .and_then(|code| v8::Script::compile(context_scope, code, None))
-            .and_then(|script| script.run(context_scope));
+        let source = source.as_local(scope)?;
+        let name = "name".as_local(scope)?.into();
+
+        let result = v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
+
+        godot_print!("{}", scope.has_caught());
+
+        if scope.has_caught() {
+            let message = scope.exception().unwrap().to_rust_string_lossy(scope);
+            let classname = scope
+                .exception()
+                .unwrap()
+                .to_object(scope)
+                .unwrap()
+                .get(scope, name)
+                .unwrap()
+                .to_rust_string_lossy(scope);
+            godot_print!("{}, {}", message, classname);
+        }
 
         return match result {
             Some(v) => Ok(v.clone()),
