@@ -1,5 +1,4 @@
 use crate::gdv8::error::Error;
-use godot::global::godot_print;
 use rusty_v8::{self as v8};
 
 pub struct V8Environment {
@@ -33,7 +32,6 @@ impl V8Environment {
         }?;
 
         let handle_scope = unsafe { handle_scope_ptr.as_mut().unwrap() };
-
         let context = unsafe { context_ptr.as_ref().unwrap() };
 
         let context_scope_ptr =
@@ -47,8 +45,8 @@ impl V8Environment {
         });
     }
 
-    pub fn context_scope<'a>(
-        &'a self,
+    pub fn context_scope(
+        &self,
     ) -> Option<&mut v8::ContextScope<'static, v8::HandleScope<'static>>> {
         return unsafe { self.context_scope_ptr.as_mut() };
     }
@@ -62,5 +60,17 @@ impl Drop for V8Environment {
             drop(Box::from_raw(self.handle_scope_ptr));
             drop(Box::from_raw(self.isolate_ptr));
         }
+    }
+}
+
+pub trait AsLocal<T> {
+    fn as_local(self, env: &mut v8::HandleScope<'static, ()>) -> Result<T, Error>;
+}
+
+impl<'a> AsLocal<v8::Local<'a, v8::String>> for &str {
+    fn as_local(self, scope: &mut v8::HandleScope<'static, ()>) -> Result<v8::Local<'a, v8::String>, Error> {
+        let value = v8::String::new(scope, self).unwrap();
+
+        return Ok(value);
     }
 }
