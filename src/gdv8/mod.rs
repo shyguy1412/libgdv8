@@ -40,15 +40,12 @@ impl Runtime {
         Ok(())
     }
     pub fn run_script(&self, source: &str) -> Result<v8::Local<'_, v8::Value>, Error> {
-        let env = match self.environment.as_ref() {
+        let env = match &self.environment {
             Some(v) => v,
             None => return Err(Error::InvalidEnvironment),
         };
 
-        let scope = match env.context_scope() {
-            Some(v) => v,
-            None => return Err(Error::InvalidEnvironment),
-        };
+        let scope = env.context_scope()?;
 
         let scope = &mut v8::TryCatch::new(scope);
 
@@ -56,8 +53,6 @@ impl Runtime {
         let name = "name".as_local(scope)?.into();
 
         let result = v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
-
-        godot_print!("{}", scope.has_caught());
 
         if scope.has_caught() {
             let message = scope.exception().unwrap().to_rust_string_lossy(scope);
@@ -86,13 +81,7 @@ impl Runtime {
 
         let environment = self.environment.as_ref().unwrap();
 
-        let context_scope = environment.context_scope();
-
-        if context_scope.is_none() {
-            return Err(Error::InvalidEnvironment);
-        };
-
-        let context_scope = context_scope.unwrap();
+        let context_scope = environment.context_scope()?;
 
         Ok(value.to_rust_string_lossy(context_scope))
     }
