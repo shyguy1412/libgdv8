@@ -47,8 +47,11 @@ impl V8Environment {
 
     pub fn context_scope(
         &self,
-    ) -> Option<&mut v8::ContextScope<'static, v8::HandleScope<'static>>> {
-        return unsafe { self.context_scope_ptr.as_mut() };
+    ) -> Result<&mut v8::ContextScope<'static, v8::HandleScope<'static>>, Error> {
+        return match unsafe { self.context_scope_ptr.as_mut() }{
+            Some(v) => Ok(v),
+            None => Err(Error::InvalidEnvironment),
+        };
     }
 }
 
@@ -64,7 +67,7 @@ impl Drop for V8Environment {
 }
 
 pub trait AsLocal<T> {
-    fn as_local(self, env: &mut v8::HandleScope<'static, ()>) -> Result<T, Error>;
+    fn as_local(self, scope: &mut v8::HandleScope<'static, ()>) -> Result<T, Error>;
 }
 
 impl<'a> AsLocal<v8::Local<'a, v8::String>> for &str {
