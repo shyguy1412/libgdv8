@@ -1,5 +1,6 @@
 use std::iter::FromIterator;
 use std::{collections::HashMap, ops::Deref};
+use rusty_v8::{self as v8, HandleScope};
 
 use godot::meta::{FromGodot, GodotConvert, ToGodot};
 
@@ -132,7 +133,7 @@ impl std::ops::Index<&str> for WeakType {
 impl WeakType {
     fn from<'a, T>(value: T) -> WeakType
     where
-        T: IntoWeakType,
+        T: Into<WeakType>,
     {
         value.into()
     }
@@ -175,57 +176,73 @@ impl WeakType {
             }
         }
     }
+
+    pub fn as_local<'a>(&self, scope: &mut HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+        match self {
+            WeakType::String(v) => v8::String::new(scope, v).unwrap().into(),
+            WeakType::Number(_) => todo!(),
+            WeakType::Object(object) => todo!(),
+            WeakType::Array(v) => v8::String::new(scope, &self.coerce_to_string()).unwrap().into(),
+            WeakType::Undefined => v8::undefined(scope).into(),
+        }
+    }
 }
 
-pub trait IntoWeakType {
-    fn into(self) -> WeakType;
-}
-
-impl IntoWeakType for f64 {
+impl Into<WeakType> for f64 {
     fn into(self) -> WeakType {
         WeakType::Number(self)
     }
 }
 
-impl IntoWeakType for i32 {
+impl Into<WeakType> for i32 {
     fn into(self) -> WeakType {
         WeakType::Number(f64::from(self))
     }
 }
 
-impl IntoWeakType for &str {
+impl Into<WeakType> for &str {
     fn into(self) -> WeakType {
         WeakType::String(self.to_string())
     }
 }
 
-impl IntoWeakType for String {
+impl Into<WeakType> for String {
     fn into(self) -> WeakType {
         WeakType::String(self)
     }
 }
 
-impl IntoWeakType for HashMap<&'static str, WeakType> {
+impl Into<WeakType> for HashMap<&'static str, WeakType> {
     fn into(self) -> WeakType {
         WeakType::Object(Object(self))
     }
 }
 
-impl IntoWeakType for Object {
+impl Into<WeakType> for Object {
     fn into(self) -> WeakType {
         WeakType::Object(self)
     }
 }
 
-impl IntoWeakType for Vec<WeakType> {
+impl Into<WeakType> for Vec<WeakType> {
     fn into(self) -> WeakType {
         WeakType::Array(Array(self))
     }
 }
 
-impl IntoWeakType for Array {
+impl Into<WeakType> for Array {
     fn into(self) -> WeakType {
         WeakType::Array(self)
+    }
+}
+
+pub trait AsWeakType {
+    fn as_weak_type(&self, scope: &mut HandleScope<'_>) -> WeakType;
+}
+
+impl AsWeakType for v8::Local<'_, v8::Value> {
+    fn as_weak_type(&self, scope: &mut HandleScope<'_>) -> WeakType {
+        WeakType::String(self.to_rust_string_lossy(scope))
     }
 }
 
@@ -233,8 +250,11 @@ impl IntoWeakType for Array {
 pub struct Array(Vec<WeakType>);
 
 impl Array {
-    fn from(arr: &[WeakType]) -> WeakType {
+    pub fn from(arr: &[WeakType]) -> WeakType {
         WeakType::from(Array(arr.to_vec()))
+    }
+    pub fn new(initial:Vec<WeakType>) -> Self{
+        Array(initial)
     }
 }
 
@@ -252,11 +272,11 @@ impl<const N: usize> FromValues<[(&'static str, WeakType); N]> for Object {
 }
 
 #[allow(non_snake_case)]
-pub fn Number(n: impl IntoWeakType) -> WeakType {
+pub fn Number(n: impl Into<WeakType>) -> WeakType {
     WeakType::from(n.into().coerce_to_number())
 }
 
 #[allow(non_snake_case)]
-pub fn String(s: impl IntoWeakType) -> WeakType {
+pub fn String(s: impl Into<WeakType>) -> WeakType {
     WeakType::from(s.into().coerce_to_string())
 }
