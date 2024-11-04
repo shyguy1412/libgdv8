@@ -1,46 +1,86 @@
-mod gdv8;
-mod helpers;
+mod context;
+mod error;
+mod helper;
+mod value;
 
-use godot::{classes::notify::NodeNotification, prelude::*};
+use std::{cell::OnceCell, collections::HashMap, hash::Hash, sync::Mutex};
 
-struct GodotV8Extension;
-#[gdextension]
-unsafe impl ExtensionLibrary for GodotV8Extension {}
+pub use context::Context;
+pub use error::Error;
+use godot::register;
+use rusty_v8 as v8;
+pub use value::*;
 
-#[derive(GodotClass)]
-#[class(base=Node)]
-struct JSNode {
-    base: Base<Node>,
-    runtime: gdv8::Runtime,
+static V8_RUNTIME: Mutex<OnceCell<Runtime>> = Mutex::new(OnceCell::new());
+
+unsafe impl Send for Runtime {}
+unsafe impl Sync for Runtime {}
+
+struct Runtime {
+    isolate_ptr: *mut v8::OwnedIsolate,
+    registry: HashMap<u64, HashMap<String, Callable>>,
 }
 
-#[godot_api]
-impl JSNode {
-    #[func]
-    fn run_script(&mut self, script: String) -> gdv8::WeakType {
-        let value = self.runtime.run_script(&script);
-
-        return match value {
-            Ok(v) => match self.runtime.to_rust_string_lossy(v) {
-                Ok(v) => gdv8::String(v),
-                Err(_) => gdv8::WeakType::Undefined,
-            },
-            Err(_) => gdv8::WeakType::Undefined,
-        };
-    }
+pub enum Callable {
+    Godot(godot::builtin::Callable),
+    Closure(Box<dyn Fn(Vec<Value>) -> Value>),
 }
 
-#[godot_api]
-impl INode for JSNode {
-    fn init(base: Base<Node>) -> Self {
-        let mut runtime = gdv8::Runtime::prepare();
-        if runtime.init().is_err() {
-            panic!("Could not create V8 runtime")
-        };
-        Self { base, runtime }
-    }
+impl Runtime {
+    pub fn new() -> Self {
+        let platform = v8::new_default_platform(0, false).make_shared();
+        v8::V8::initialize_platform(platform);
+        v8::V8::initialize();
 
-    fn on_notification(&mut self, what: NodeNotification) {
-        if what == NodeNotification::PREDELETE {}
+        // let runtime = Self {
+        //     isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
+        //     registry: Box::leak(Box::new(HashMap::new())),
+        // };
+
+        // unsafe {
+        //     Box::into_raw(Box::new(runtime)).as_mut().unwrap()
+        // }
+
+        Self {
+            isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
+            registry: HashMap::new(),
+        }
+    }
+    // pub fn init() {
+
+    //     if V8_RUNTIME.deref(). {
+    //         return;
+    //     }
+
+    //     let platform = v8::new_default_platform(0, false).make_shared();
+    //     v8::V8::initialize_platform(platform);
+    //     v8::V8::initialize();
+
+    //     *runtime = Some(Self {
+    //         isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
+    //         registry: Box::leak(Box::new(HashMap::new())),
+    //     })
+    // }
+    pub fn get_isolate(&self) -> Result<&'static mut v8::OwnedIsolate, Error> {
+        return unsafe {
+            match self.isolate_ptr.as_mut() {
+                Some(v) => Ok(v),
+                None => Err(Error::UnitializedRuntime),
+            }
+        };
+    }
+    pub fn get_registry(&mut self, id: u64) -> &mut HashMap<String, Callable> {
+        match self.registry.contains_key(&id) {
+            true => self.registry.get_mut(&id).unwrap(),
+            false => {
+                self.registry.insert(id, HashMap::new());
+                self.registry.get_mut(&id).unwrap()
+            }
+        }
+    }
+}
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        drop(unsafe { Box::from_raw(self.isolate_ptr) });
     }
 }
