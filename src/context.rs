@@ -3,7 +3,7 @@ use crate::{
     helper::{AsLocal, AsValue},
     Callable, Runtime, Value, V8_RUNTIME,
 };
-use godot::{global::godot_print, meta::ToGodot};
+use godot::meta::{FromGodot, ToGodot};
 use rusty_v8::{self as v8};
 
 static mut CONTEXT_COUNT: u64 = 0;
@@ -93,9 +93,9 @@ impl Context {
             let mut weak: Vec<Value> = vec![];
 
             for i in 0..args.length() {
-                godot_print!("PARSING ARG {}", i);
+                // godot_print!("PARSING ARG {}", i);
                 let current_arg = args.get(i).as_value(scope);
-                godot_print!("current arg: {current_arg}");
+                // godot_print!("current arg: {current_arg}");
                 // let value = current_arg.to_rust_string_lossy(scope);
                 weak.push(current_arg);
             }
@@ -132,15 +132,17 @@ impl Context {
 
             let godot_args = godot::builtin::Array::from_iter(weak.iter().map(|v| v.to_godot()));
 
-            let t = match callback {
+            let result = match callback {
                 Callable::Godot(callable) => {
-                    godot_print!("callable: {callable}, {}", callable.is_valid());
-                    callable.callv(&godot::builtin::VariantArray::from(godot_args))
+                    // godot_print!("callable: {callable}, {}", callable.is_valid());
+                    let result = callable.callv(&godot::builtin::VariantArray::from(godot_args));
+                    let result = Value::from_godot(result);
+                    result
                 }
-                Callable::Closure(v) => v(weak).to_godot(),
+                Callable::Closure(v) => v(weak),
             };
             
-
+            retval.set(result.as_local(scope));
 
             let error = match scope.has_caught() {
                 true => Error::Exception(
@@ -155,8 +157,6 @@ impl Context {
                 ),
                 false => Error::None,
             };
-
-            godot_print!("return: {}, error: {error}", t)
         };
 
         let mut guard = V8_RUNTIME.lock().unwrap();

@@ -3,12 +3,11 @@ mod error;
 mod helper;
 mod value;
 
-use std::{cell::OnceCell, collections::HashMap, hash::Hash, sync::Mutex};
+use std::{cell::OnceCell, collections::HashMap, sync::Mutex};
+use rusty_v8 as v8;
 
 pub use context::Context;
 pub use error::Error;
-use godot::register;
-use rusty_v8 as v8;
 pub use value::*;
 
 static V8_RUNTIME: Mutex<OnceCell<Runtime>> = Mutex::new(OnceCell::new());
