@@ -1,5 +1,6 @@
 use std::iter::FromIterator;
 use std::{collections::HashMap, ops::Deref};
+use godot::builtin::VariantType;
 use rusty_v8::{self as v8, HandleScope};
 
 use godot::meta::{FromGodot, GodotConvert, ToGodot};
@@ -42,8 +43,12 @@ impl ToGodot for Value {
 }
 
 impl FromGodot for Value {
-    fn try_from_godot(_via: Self::Via) -> Result<Self, godot::prelude::ConvertError> {
-        todo!("godot to weaktype")
+    fn try_from_godot(via: Self::Via) -> Result<Self, godot::prelude::ConvertError> {
+        match via.get_type() {
+            VariantType::NIL => Ok(Value::Undefined),
+            VariantType::STRING => Ok(Value::String(via.to_string())),
+            _ => Err(godot::prelude::ConvertError::new("type not representable by gdv8::Value"))
+        }
     }
 }
 
