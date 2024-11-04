@@ -31,35 +31,11 @@ impl Runtime {
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
 
-        // let runtime = Self {
-        //     isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
-        //     registry: Box::leak(Box::new(HashMap::new())),
-        // };
-
-        // unsafe {
-        //     Box::into_raw(Box::new(runtime)).as_mut().unwrap()
-        // }
-
         Self {
             isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
             registry: HashMap::new(),
         }
     }
-    // pub fn init() {
-
-    //     if V8_RUNTIME.deref(). {
-    //         return;
-    //     }
-
-    //     let platform = v8::new_default_platform(0, false).make_shared();
-    //     v8::V8::initialize_platform(platform);
-    //     v8::V8::initialize();
-
-    //     *runtime = Some(Self {
-    //         isolate_ptr: Box::leak(Box::new(v8::Isolate::new(v8::CreateParams::default()))),
-    //         registry: Box::leak(Box::new(HashMap::new())),
-    //     })
-    // }
     pub fn get_isolate(&self) -> Result<&'static mut v8::OwnedIsolate, Error> {
         return unsafe {
             match self.isolate_ptr.as_mut() {
@@ -78,6 +54,7 @@ impl Runtime {
         }
     }
 }
+
 impl Drop for Runtime {
     fn drop(&mut self) {
         drop(unsafe { Box::from_raw(self.isolate_ptr) });
