@@ -144,7 +144,7 @@ impl Context {
             
             retval.set(result.as_local(scope));
 
-            let error = match scope.has_caught() {
+            let _error = match scope.has_caught() {
                 true => Error::Exception(
                     scope
                         .exception()
